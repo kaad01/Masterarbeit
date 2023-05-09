@@ -1,0 +1,5 @@
+Gismodule
+(customer-asset-identifier),standard-asset-identifier,factory,gis-module-8-digit-code,primtech-module-matchcode,gis-module-current-phase,gis-module-product-affiliation
+
+substation
+switchgear-asset-identifier-code,rated-voltage-ur,(country-of-installation),(end-customer),(switchgear-installation-location-type),switchgear-product-type
