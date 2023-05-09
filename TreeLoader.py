@@ -13,12 +13,9 @@ class TreeLoader(Dataset):
     def processed_trees(self, data: HeteroData):
         trees = []
         for bay_id in data['bay'].node_id.tolist():
-            # bay_data = data['bay'].x[bay_id].view(1, -1)
-
             connected_substation = data['bay', 'rev_hasPart', 'substation'].edge_index[1]\
                                     [data['bay', 'rev_hasPart', 'substation'].edge_index[0] == bay_id] # get the substation connected to the bay
             substation_data = data['substation'].x[connected_substation].view(1, -1)
-            
             modules_mask = data['bay', 'hasPart', 'module'].edge_index[0] == bay_id
             connected_modules = data['bay', 'hasPart', 'module'].edge_index[1][modules_mask] # get the modules connected to the bay
             
@@ -44,7 +41,6 @@ class TreeLoader(Dataset):
             tree_data['module'].node_id = torch.arange(len(connected_modules))
 
             tree_data['substation'].x = substation_data
-            # tree_data['bay'].x = bay_data
             tree_data['module'].x = module_data
 
             # add edges
@@ -62,11 +58,8 @@ class TreeLoader(Dataset):
         total_size = self.__len__()
         train_size = int(0.7 * total_size)
         valid_size = total_size - train_size
-        # valid_size = int(0.2 * total_size)
-        # test_size = total_size - train_size - valid_size
 
         train_dataset, valid_dataset = random_split(self.trees,[train_size, valid_size])
-        # train_dataset, valid_dataset, test_dataset = random_split(self.trees,[train_size, valid_size, test_size])
 
         return train_dataset, valid_dataset
 
