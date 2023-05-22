@@ -126,6 +126,7 @@ def generate_positive_negative_examples(edge_index, num_nodes):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
+# model.load_state_dict(torch.load('model/model_good.pt')['model_state_dict'])
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
 
 def train():
