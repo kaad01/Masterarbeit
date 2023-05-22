@@ -6,12 +6,13 @@ import torch
 from torch import Tensor
 from torch_geometric.nn import SAGEConv, to_hetero
 from TreeLoader import TreeLoader
-from torch_geometric.utils import negative_sampling
+from torch_geometric.utils import negative_sampling, to_networkx
+import networkx as nx
 from create_my_data import create_dataset
 from torch_geometric.data import Batch
 import matplotlib.pyplot as plt
 import pickle
-from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score
+from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score, RocCurveDisplay
 
 def save(object, name):
     with open(name, 'wb') as f:
@@ -27,7 +28,6 @@ def load(name):
 # data = T.ToUndirected()(data)
 # save(data, "augmented_data.pkl")
 data = load("data_simple.pkl")
-
 
 # tree_loader = TreeLoader(data)
 # save(tree_loader, "augmented_tree_loader.pkl")
@@ -92,7 +92,6 @@ class Model(torch.nn.Module):
         self.gnn = to_hetero(self.gnn, metadata=data.metadata())
         
         self.classifier = Classifier()
-        self.decoder = torch.nn.Linear(2 * hidden_channels, 1)
 
 
     def forward(self, tree) -> Tensor:
@@ -126,6 +125,7 @@ def generate_positive_negative_examples(edge_index, num_nodes):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
+model.load_state_dict(torch.load('models/model_good.pt')['model_state_dict'])
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
 
 def train():
@@ -172,20 +172,43 @@ def validate():
             total_loss += loss.item()
 
     pred = torch.cat(preds, dim=0)
-    pred = (pred > 0.5).float().numpy() # thresholding
     ground_truth = torch.cat(ground_truths, dim=0)
-    ground_truth = (ground_truth > 0.5).float().numpy() # thresholding 
-    auc = accuracy_score(ground_truth, pred)
-    # TODO: für jeden data punkt (Feld)
-    print()
-    print(f"Validation AUC: {auc:.4f}")
+    auc = roc_auc_score(ground_truth, pred)
+    # RocCurveDisplay.from_predictions(ground_truth, pred)
 
-    return total_loss / len(valid_dataloader)
-
-for epoch in range(50):
-    val_loss = validate()
-    train_loss = train()
+    # plt.show()
     
-    print(f"Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+    pred = (pred > 0.5).float().numpy() # thresholding
+    acc = accuracy_score(ground_truth, pred)
+    # TODO: für jeden data punkt (Feld)
 
+    loss = total_loss / len(valid_dataloader)
+
+    return loss, auc, acc
+
+
+num_epochs = 50
+train_losses = []
+validation_accuracies = []
+validation_auc = []
+for epoch in range(num_epochs):
+    val_loss, auc, acc = validate()
+    validation_auc.append(auc)
+    validation_accuracies.append(acc)
+
+    train_loss = train()
+    train_losses.append(train_loss)
+
+    print(f"Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Accuracy: {acc}, AUC: {auc}")
+
+
+# visualize training performance
+plt.plot(range(1, num_epochs+1), train_losses, label='Train Loss')
+plt.plot(range(1, num_epochs+1), validation_accuracies, label='Validation Accuracy')
+plt.plot(range(1, num_epochs+1), validation_auc, label='Validation AUC')
+plt.xlabel('Epoch')
+plt.ylabel('Value')
+plt.title('Training Performance')
+plt.legend()
+plt.show()
 
