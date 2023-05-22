@@ -12,6 +12,7 @@ from torch_geometric.data import Batch
 import matplotlib.pyplot as plt
 import pickle
 from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score
+import random
 
 def save(object, name):
     with open(name, 'wb') as f:
@@ -20,33 +21,10 @@ def load(name):
     with open(name, 'rb') as f:
         return pickle.load(f)
 
-# create dataset
-#data = create_dataset()
-
-# add reverse edges, so the the model is able to pass messages in both directions
-# data = T.ToUndirected()(data)
-# save(data, "augmented_data.pkl")
 data = load("data_simple.pkl")
-
-
-# tree_loader = TreeLoader(data)
-# save(tree_loader, "augmented_tree_loader.pkl")
 tree_loader = load("tree_loader_simple.pkl")
-
-print("TreeLoader loaded")
-train_dataset, valid_dataset = tree_loader.split()
-
-
-def hetero_collate(data):
-    return Batch.from_data_list(data)
-    
-
-# Erstellen von DataLoadern für jeden Datensatz
-train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=hetero_collate)
-valid_dataloader = DataLoader(valid_dataset, batch_size=16, shuffle=True, collate_fn=hetero_collate)
-
-
-
+trees = tree_loader.trees
+random.shuffle(trees) # shuffle
 
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, dropout=0.2):
@@ -65,7 +43,6 @@ class GNN(torch.nn.Module):
         return x
 
 
-    
 # Our final classifier applies the dot-product between source and destination
 # node embeddings to derive edge-level predictions:
 class Classifier(torch.nn.Module):
@@ -106,86 +83,36 @@ class Model(torch.nn.Module):
 
         return x
 
-    def decode(self, z, pos_edge_index, neg_edge_index):
-        pos_pred = self.classifier(z['module'], pos_edge_index)
-        neg_pred = self.classifier(z['module'], neg_edge_index)
-        return pos_pred, neg_pred
+    def decode(self, z, edges):
+        pred = self.classifier(z['module'], edges)
+        return pred
 
-
-
-def generate_positive_negative_examples(edge_index, num_nodes):
-    # positive examples
-    pos_edge_index = edge_index
-    # negative examples
-    neg_edge_index = negative_sampling(edge_index, num_nodes=num_nodes)
-
-    return pos_edge_index, neg_edge_index
-
-
+def generate_edges(tree):
+    module_indices = tree['module'].node_id.tolist()
+    # from every module to every other module
+    edge_0 = [[module]*(len(module_indices)-1) for module in module_indices]
+    edge_1 = [module_indices[:i] + module_indices[i+1:] for i in range(len(module_indices))]
+    # create edge_index tensor
+    edge_index = torch.stack((torch.tensor(edge_0).flatten(), torch.tensor(edge_1).flatten()))
+    return edge_index
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
-# model.load_state_dict(torch.load('models/model_good.pt')['model_state_dict'])
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
+model.load_state_dict(torch.load('models/model_good.pt')['model_state_dict'])
 
-def train():
-    model.train()
+for tree in trees[:3]:
+    print('\nThis is a tree')
+    print(tree['module', 'directlyConnectedTo', 'module'].edge_index)
+    # del tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
+    # tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
 
-    total_loss = 0
-    for data in tqdm(train_dataloader):
-        data = data.to(device)
-        optimizer.zero_grad()
-        z = model(data)
+    tree = tree.to(device)
+    z = model(tree)
+    edges = generate_edges(tree) # generate all possible edges
+    print(edges)
+    raw_preds = model.decode(z, edges)
+    print(raw_preds)
+    preds = (raw_preds > 0.5).float().numpy() # thresholding
+    print(preds)
 
-        pos_edge_index, neg_edge_index = generate_positive_negative_examples(data['directlyConnectedTo'].edge_index, data['module'].num_nodes)
-        pos_preds, neg_preds = model.decode(z, pos_edge_index, neg_edge_index)
-
-        pos_labels = torch.ones(pos_preds.shape[0]).to(device)
-        neg_labels = torch.zeros(neg_preds.shape[0]).to(device)
-
-        loss = F.binary_cross_entropy_with_logits(pos_preds, pos_labels) + F.binary_cross_entropy_with_logits(neg_preds, neg_labels)
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-    return total_loss / len(train_dataloader)
-
-def validate():
-    model.eval()
-    preds = []
-    ground_truths = []
-    with torch.no_grad():
-        total_loss = 0
-        for data in valid_dataloader:
-            data = data.to(device)
-            z = model(data)
-            pos_edge_index, neg_edge_index = generate_positive_negative_examples(data['directlyConnectedTo'].edge_index, data['module'].num_nodes)
-            pos_preds, neg_preds = model.decode(z, pos_edge_index, neg_edge_index)
-            preds.append(torch.cat([pos_preds, neg_preds], dim=0))
-
-            pos_labels = torch.ones(pos_preds.shape[0]).to(device)
-            neg_labels = torch.zeros(neg_preds.shape[0]).to(device)
-            ground_truths.append(torch.cat([pos_labels, neg_labels], dim=0))
-
-            loss = F.binary_cross_entropy_with_logits(pos_preds, pos_labels) + F.binary_cross_entropy_with_logits(neg_preds, neg_labels)
-            total_loss += loss.item()
-
-    pred = torch.cat(preds, dim=0)
-    pred = (pred > 0.5).float().numpy() # thresholding
-    ground_truth = torch.cat(ground_truths, dim=0)
-    ground_truth = (ground_truth > 0.5).float().numpy() # thresholding 
-    auc = accuracy_score(ground_truth, pred)
-    # TODO: für jeden data punkt (Feld)
-    print()
-    print(f"Validation AUC: {auc:.4f}")
-
-    return total_loss / len(valid_dataloader)
-
-for epoch in range(50):
-    val_loss = validate()
-    train_loss = train()
     
-    print(f"Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
-
-
