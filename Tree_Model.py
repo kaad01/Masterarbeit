@@ -92,7 +92,6 @@ class Model(torch.nn.Module):
         self.gnn = to_hetero(self.gnn, metadata=data.metadata())
         
         self.classifier = Classifier()
-        self.decoder = torch.nn.Linear(2 * hidden_channels, 1)
 
 
     def forward(self, tree) -> Tensor:
@@ -103,7 +102,10 @@ class Model(torch.nn.Module):
             "module": self.lin_module(tree['module'].x) + self.emb_module(tree["module"].node_id)
         }
         # `edge_index_dict` holds all edge indices of all edge types
-        x = self.gnn(x_dict, tree.edge_index_dict)
+        new_tree = tree.clone()
+        # del new_tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
+        # new_tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
+        x = self.gnn(x_dict, new_tree.edge_index_dict)
 
         return x
 
@@ -126,7 +128,7 @@ def generate_positive_negative_examples(edge_index, num_nodes):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
-# model.load_state_dict(torch.load('model/model_good.pt')['model_state_dict'])
+# model.load_state_dict(torch.load('models/model_good.pt')['model_state_dict'])
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
 
 def train():
