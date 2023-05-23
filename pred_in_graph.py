@@ -24,7 +24,7 @@ def load(name):
 data = load("data_simple.pkl")
 tree_loader = load("tree_loader_simple.pkl")
 trees = tree_loader.trees
-random.shuffle(trees) # shuffle
+# random.shuffle(trees) # shuffle
 
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, dropout=0.2):
@@ -100,12 +100,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
 model.load_state_dict(torch.load('models/model_real_good.pt')['model_state_dict'])
 
-for tree in trees[:6]:
+for tree in trees:
     print('\nThis is a tree')
-    print(tree['module', 'directlyConnectedTo', 'module'].edge_index)
-    del tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
-    tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
-
+    print(f"Real Edge_Index: {tree['module', 'directlyConnectedTo', 'module'].edge_index}")
+    # del tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
+    # tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
     tree = tree.to(device)
     z = model(tree)
     edges = generate_edges(tree) # generate all possible edges
