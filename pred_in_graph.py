@@ -98,20 +98,24 @@ def generate_edges(tree):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(hidden_channels=64).to(device)
-model.load_state_dict(torch.load('models/model_real_good.pt')['model_state_dict'])
+model.load_state_dict(torch.load('models/model_real_good_2.pt')['model_state_dict'])
 
-for tree in trees:
+for tree in trees[:3]:
     print('\nThis is a tree')
-    print(f"Real Edge_Index: {tree['module', 'directlyConnectedTo', 'module'].edge_index}")
-    # del tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
-    # tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
+    real_edges = tree['module', 'directlyConnectedTo', 'module'].edge_index.T.tolist()
+    print(real_edges)
+    del tree['module', 'directlyConnectedTo', 'module'].edge_index # delete edges
+    tree['module', 'directlyConnectedTo', 'module'].edge_index = torch.tensor([[],[]], dtype=torch.long) # placeholder for edges
     tree = tree.to(device)
     z = model(tree)
     edges = generate_edges(tree) # generate all possible edges
-    print(edges)
     raw_preds = model.decode(z, edges)
-    print(raw_preds)
     preds = (raw_preds > 0.5).float().numpy() # thresholding
+    non_zero_indices = torch.nonzero(torch.tensor(preds)).flatten() # use preds as index for edges
+    preds = edges[:, non_zero_indices].T.tolist() # get edges
     print(preds)
+    same = [i in real_edges for i in preds] # check for elements in real edges that are in preds
+    percentage = sum(same)/len(same)
+    print(percentage)
 
     
